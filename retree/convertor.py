@@ -1,6 +1,7 @@
 # model convertors
-from typing import List, Tuple
+from typing import List, Tuple, Callable, Any
 import onnx
+import numpy as np
 from .tree import TreeEnsembleRegressor, DecisionTreeRegressor
 from sklearn import tree as sklearn_tree, ensemble as sklearn_ensemble, pipeline as sklearn_pipeline
 SklearnPipeline = sklearn_pipeline.Pipeline
@@ -11,9 +12,9 @@ class ONNXConvertor:
 
     @staticmethod
     def find_model(input_pipeline: onnx.ModelProto) -> onnx.NodeProto | None:
-        # 1. 找到所有的 TreeEnsembleRegressor nodes
+        # 1. 找到所有的 TreeEnsembleRegressor nodes 和 TreeEnsembleClassifier nodes
         nodes = input_pipeline.graph.node
-        models = [node for node in nodes if node.op_type == 'TreeEnsembleRegressor']
+        models = [node for node in nodes if node.op_type in ['TreeEnsembleRegressor', 'TreeEnsembleClassifier']]
         if not models:
             return None
 
@@ -27,19 +28,37 @@ class ONNXConvertor:
             return None
 
         # 3. 模型细节判断：非 GBDT、加性模型
+        assert len(models) == 1
         model = models[0]
         attributes_map = {attr.name: attr for attr in model.attribute}
-        if attributes_map.get('base_values') == None and attributes_map.get('aggregate_function') in [None, 'SUM']:
-            return model
-        else:
-            return None
+        if model.op_type == 'TreeEnsembleRegressor':
+            if attributes_map.get('base_values') is None and \
+                attributes_map['post_transform'].s == b'NONE' and \
+                (attributes_map.get('aggregate_function') is None or attributes_map['aggregate_function'].s == b'SUM'):
+                return model
+            else:
+                return None
+        if model.op_type == 'TreeEnsembleClassifier':
+            if attributes_map.get('base_values') is None and \
+                attributes_map['post_transform'].s == b'NONE' and \
+                attributes_map.get('classlabels_int64s') is not None:
+                return model
+            else:
+                return None
 
     @staticmethod
-    def from_model(input_model: onnx.NodeProto) -> TreeEnsembleRegressor:
-        assert input_model.op_type == 'TreeEnsembleRegressor'
+    def from_model(input_model: onnx.NodeProto, func: Callable[[Any], bool]) -> TreeEnsembleRegressor:
         attributes_map = {attr.name: attr for attr in input_model.attribute}
-        assert attributes_map.get('base_values') == None  # 不是 GBDT
-        assert attributes_map.get('aggregate_function') in [None, 'SUM']  # 加性模型
+        if input_model.op_type == 'TreeEnsembleRegressor':
+            assert attributes_map.get('base_values') is None  # 不是 GBDT
+            assert attributes_map['post_transform'].s == b'NONE' # 无后处理
+            assert (attributes_map.get('aggregate_function') is None or attributes_map['aggregate_function'].s == b'SUM')  # 加性模型
+        elif input_model.op_type == 'TreeEnsembleClassifier':
+            assert attributes_map.get('base_values') is None  # 不是 GBDT
+            assert attributes_map['post_transform'].s == b'NONE' # 无后处理
+            assert attributes_map.get('classlabels_int64s') is not None # 类别为数字
+        else:
+            raise Exception(f'illegal op type: {input_model.op_type}')
 
         nodes_falsenodeids = attributes_map['nodes_falsenodeids'].ints
         nodes_featureids = attributes_map['nodes_featureids'].ints
@@ -54,12 +73,36 @@ class ONNXConvertor:
         
         tree_count = len(nodes_tree_intervals)
 
-        target_ids = attributes_map['target_ids'].ints
-        target_nodeids = attributes_map['target_nodeids'].ints
-        target_treeids = attributes_map['target_treeids'].ints
-        target_weights = [w * tree_count for w in attributes_map['target_weights'].floats]
-        target_tree_intervals = ONNXConvertor.get_tree_intervals(target_treeids)
+        target_ids = []
+        target_nodeids = []
+        target_treeids = []
+        target_weights = []
 
+        if input_model.op_type == 'TreeEnsembleRegressor':
+            target_ids = attributes_map['target_ids'].ints
+            target_nodeids = attributes_map['target_nodeids'].ints
+            target_treeids = attributes_map['target_treeids'].ints
+            target_weights = [float(func(w * tree_count)) for w in attributes_map['target_weights'].floats]
+        elif input_model.op_type == 'TreeEnsembleClassifier':            
+            class_ids = attributes_map['class_ids'].ints
+            class_nodeids = attributes_map['class_nodeids'].ints
+            class_treeids = attributes_map['class_treeids'].ints
+            class_weights = [w * tree_count for w in attributes_map['class_weights'].floats]
+            classlabels_int64s = attributes_map['classlabels_int64s'].ints
+            stride = len(classlabels_int64s)
+            if stride == 2:
+                stride = 1
+            for i in range(0, len(class_ids), stride):
+                target_ids.append(class_ids[i])
+                target_nodeids.append(class_nodeids[i])
+                target_treeids.append(class_treeids[i])
+                if stride == 1:
+                    label = classlabels_int64s[1] if class_weights[i] > 0.5 else classlabels_int64s[0]                    
+                else:
+                    label = classlabels_int64s[np.argmax(class_weights[i:i+stride])]
+                target_weights.append(float(func(label)))
+
+        target_tree_intervals = ONNXConvertor.get_tree_intervals(target_treeids)
         ensemble = TreeEnsembleRegressor()
         for i in range(tree_count):
             nodes_tree_start, nodes_tree_end = nodes_tree_intervals[i]
@@ -132,10 +175,16 @@ class ONNXConvertor:
             target_treeids.extend(r.target_treeids)
             target_weights.extend([weight / len(output_model.regressors) for weight in r.target_weights])
 
+        outputs = None
+        if input_model.op_type == 'TreeEnsembleRegressor':
+            outputs = input_model.output
+        elif input_model.op_type == 'TreeEnsembleClassifier':
+            outputs = [input_model.output[0]]
+
         node = onnx.helper.make_node(
             op_type='TreeEnsembleRegressor',
             inputs=input_model.input,
-            outputs=input_model.output,
+            outputs=outputs,
             name=input_model.name,
             domain='ai.onnx.ml',
             # attributes
@@ -164,11 +213,16 @@ class ONNXConvertor:
             if node.name == output_model.name:
                 nodes[i] = output_model
                 break
+        outputs = [onnx.helper.make_tensor_value_info(
+            name=output_model.output[0],
+            elem_type=onnx.TensorProto.FLOAT,
+            shape=[None, 1]
+        )]
         graph = onnx.helper.make_graph(
             nodes=nodes,
             name=input_pipeline.graph.name,
             inputs=input_pipeline.graph.input,
-            outputs=input_pipeline.graph.output,
+            outputs=outputs,
             initializer=input_pipeline.graph.initializer,
             doc_string=input_pipeline.graph.doc_string,
             value_info=input_pipeline.graph.value_info,
@@ -185,17 +239,20 @@ class ONNXConvertor:
 class SklearnConvertor:
     @staticmethod
     def find_model(input_pipeline: SklearnPipeline) -> SklearnTreeModel | None:
+        # TODO
         pass
-
 
     @staticmethod
     def from_model(input_model: SklearnTreeModel) -> TreeEnsembleRegressor:
+        # TODO
         pass
 
     @staticmethod
     def to_model(output_model: TreeEnsembleRegressor, input_model: SklearnTreeModel) -> SklearnTreeModel:
+        # TODO
         pass
 
     @staticmethod
     def to_pipeline(input_pipeline: SklearnPipeline, output_model: SklearnTreeModel) -> SklearnPipeline:
+        # TODO
         pass
