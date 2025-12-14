@@ -3,10 +3,15 @@ from typing import List, Tuple, Callable, Any
 import onnx
 import numpy as np
 from .tree import TreeEnsembleRegressor, DecisionTreeRegressor
-from sklearn import tree as sklearn_tree, ensemble as sklearn_ensemble, pipeline as sklearn_pipeline
-SklearnPipeline = sklearn_pipeline.Pipeline
-SklearnTreeModel = sklearn_tree.DecisionTreeClassifier | sklearn_tree.DecisionTreeRegressor |\
-    sklearn_ensemble.RandomForestClassifier | sklearn_ensemble.RandomForestRegressor
+from . import sklearn_utils as skutils
+from sklearn.tree import _tree as sklearn_tree
+from sklearn.tree import DecisionTreeRegressor as SklearnDecisionTreeRegressor
+from sklearn.tree import DecisionTreeClassifier as SklearnDecisionTreeClassifier
+from sklearn.ensemble import RandomForestRegressor as SklearnRandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier as SklearnRandomForestClassifier
+from sklearn.pipeline import Pipeline as SklearnPipeline
+SklearnTreeModel = SklearnDecisionTreeRegressor | SklearnDecisionTreeClassifier |\
+    SklearnRandomForestRegressor | SklearnRandomForestClassifier
 
 class ONNXConvertor:
 
@@ -28,6 +33,7 @@ class ONNXConvertor:
             return None
 
         # 3. 模型细节判断：非 GBDT、加性模型
+        # TODO 排除随机森林多分类器
         assert len(models) == 1
         model = models[0]
         attributes_map = {attr.name: attr for attr in model.attribute}
@@ -239,20 +245,110 @@ class ONNXConvertor:
 class SklearnConvertor:
     @staticmethod
     def find_model(input_pipeline: SklearnPipeline) -> SklearnTreeModel | None:
-        # TODO
-        pass
+        model = input_pipeline.steps[-1][-1]
+        if not isinstance(model, SklearnTreeModel):
+            return None
+        if type(model) in [SklearnDecisionTreeClassifier, SklearnRandomForestClassifier] and not np.issubdtype(model.classes_.dtype, np.number):
+            return None
+        if type(model) is SklearnRandomForestClassifier and model.n_classes_ != 2:
+            return None
+        return model
 
     @staticmethod
-    def from_model(input_model: SklearnTreeModel) -> TreeEnsembleRegressor:
-        # TODO
-        pass
+    def from_model(input_model: SklearnTreeModel, func: Callable[[Any], bool]) -> TreeEnsembleRegressor:
+        ensemble = TreeEnsembleRegressor()
+        if type(input_model) in [SklearnDecisionTreeRegressor, SklearnRandomForestClassifier]:
+            regressor = SklearnConvertor.from_model_single_tree(input_model, func, 0)
+            ensemble.regressors.append(regressor)
+        elif type(input_model) in [SklearnRandomForestRegressor, SklearnRandomForestClassifier]:
+            for i, model in enumerate(input_model.estimators_):
+                regressor = SklearnConvertor.from_model_single_tree(model, func, i)
+                ensemble.regressors.append(regressor)
+        else:
+            raise Exception(f'illegal model type: {type(input_model)}')
+        return ensemble
+
+    @staticmethod
+    def from_model_single_tree(
+        input_model: SklearnDecisionTreeRegressor | SklearnDecisionTreeClassifier,
+        func: Callable[[Any], bool],
+        tree_id: int
+    ) -> DecisionTreeRegressor:
+        tree = input_model.tree_
+        node_count = len(tree.feature)
+        leaf_count = len([id for id in tree.feature if id == -2])
+        regressor = DecisionTreeRegressor()
+        regressor.nodes_falsenodeids = [0 if id == -1 else id for id in tree.children_right]
+        regressor.nodes_featureids = [0 if id == -2 else id for id in tree.feature]
+        regressor.nodes_hitrates = tree.n_nodes_samples
+        regressor.nodes_missing_value_tracks_true = tree.missing_go_to_left
+        regressor.nodes_modes = ['LEAF' if id == -2 else 'BRANCH_LEQ' for id in tree.feature]
+        regressor.nodes_nodeids = [ii for ii in range(node_count)]
+        regressor.nodes_treeids = [tree_id] * node_count
+        regressor.nodes_truenodeids = [0 if id == -1 else id for id in tree.children_left]
+        regressor.nodes_values = [0.0 if regressor.nodes_modes[ii] == 'LEAF' else v for (ii, v) in enumerate(tree.threshold)]
+        regressor.target_ids = [0] * leaf_count
+        regressor.target_nodeids = [ii for (ii, id) in tree.feature if id == -2]
+        regressor.target_treeids = [tree_id] * leaf_count
+        if type(input_model) is SklearnDecisionTreeRegressor:
+            regressor.target_weights = [float(func(tree.value[id][0][0])) for id in regressor.target_nodeids]
+        elif type(input_model) is SklearnDecisionTreeClassifier:
+            labels = input_model.classes_
+            regressor.target_weights = [float(func(labels[np.argmax(tree.value[id][0])])) for id in regressor.target_nodeids]
+        return regressor
 
     @staticmethod
     def to_model(output_model: TreeEnsembleRegressor, input_model: SklearnTreeModel) -> SklearnTreeModel:
-        # TODO
-        pass
+        if type(input_model) in [SklearnDecisionTreeRegressor, SklearnDecisionTreeClassifier]:
+            return SklearnConvertor.to_model_single_tree(output_model.regressors[0], input_model)
+        if type(input_model) in [SklearnRandomForestRegressor, SklearnRandomForestClassifier]:
+            estimator_count = input_model.n_estimators
+            ensemble = SklearnRandomForestRegressor(n_estimators=estimator_count)
+            ensemble.n_outputs_ = 1
+            ensemble.n_features_in_ = input_model.n_features_in_
+            ensemble.estimators_ = [None] * estimator_count
+            for i in range(estimator_count):
+                ensemble.estimators_[i] = SklearnConvertor.to_model_single_tree(output_model.regressors[i], input_model.estimators_[i])
+            return ensemble
+        raise Exception(f'illegal model type: {type(input_model)}')
+
+    @staticmethod
+    def to_model_single_tree(
+        regressor: DecisionTreeRegressor, 
+        input_model: SklearnDecisionTreeRegressor | SklearnDecisionTreeClassifier
+    ) -> SklearnDecisionTreeRegressor:
+        node_count = len(regressor.nodes_modes)
+        assert input_model.tree_.n_outputs == 1
+        sktree = sklearn_tree.Tree(input_model.tree_.n_features, np.array([1]), 1)  # Tree(n_features, n_classes, n_outputs)
+        sknodes = np.ndarray(shape=node_count, dtype=skutils.Node)
+        parents: List[Tuple[int, str] | None] = None * node_count
+        for (pid, lcid) in enumerate(regressor.nodes_truenodeids):
+            parents[lcid] = (pid, 'L')
+        for (pid, rcid) in enumerate(regressor.nodes_falsenodeids):
+            parents[rcid] = (pid, 'R')
+        node_to_weight = {k : v for (k, v) in zip(regressor.target_nodeids, regressor.target_weights)}
+        for i in range(node_count):
+            sknodes[i] = skutils.Node(
+                sklearn_tree.TREE_UNDEFINED if parents[i] is None else parents[i][0],
+                parents[i] is not None and parents[i][1] == 'L',
+                regressor.nodes_modes[i] == 'LEAF',
+                regressor.nodes_featureids[i],
+                regressor.nodes_values[i],
+                0.0,
+                regressor.nodes_hitrates[i],
+                float(regressor.nodes_hitrates[i]),
+                bool(regressor.nodes_missing_value_tracks_true[i]),
+                node_to_weight.get(i, 0.0)
+            )
+        skutils.init_tree(sktree, node_count, input_model.max_depth, sknodes)
+        result_model = SklearnDecisionTreeRegressor()
+        result_model.tree_ = sktree
+        result_model.n_outputs_ = 1
+        result_model.n_features_in_ = input_model.n_features_in_
+        return result_model
 
     @staticmethod
     def to_pipeline(input_pipeline: SklearnPipeline, output_model: SklearnTreeModel) -> SklearnPipeline:
-        # TODO
-        pass
+        name = input_pipeline.steps[-1][0]
+        input_pipeline.steps[-1] = (name, output_model)
+        return input_pipeline
