@@ -257,7 +257,7 @@ class SklearnConvertor:
     @staticmethod
     def from_model(input_model: SklearnTreeModel, func: Callable[[Any], bool]) -> TreeEnsembleRegressor:
         ensemble = TreeEnsembleRegressor()
-        if type(input_model) in [SklearnDecisionTreeRegressor, SklearnRandomForestClassifier]:
+        if type(input_model) in [SklearnDecisionTreeRegressor, SklearnDecisionTreeClassifier]:
             regressor = SklearnConvertor.from_model_single_tree(input_model, func, 0)
             ensemble.regressors.append(regressor)
         elif type(input_model) in [SklearnRandomForestRegressor, SklearnRandomForestClassifier]:
@@ -280,7 +280,7 @@ class SklearnConvertor:
         regressor = DecisionTreeRegressor()
         regressor.nodes_falsenodeids = [0 if id == -1 else id for id in tree.children_right]
         regressor.nodes_featureids = [0 if id == -2 else id for id in tree.feature]
-        regressor.nodes_hitrates = tree.n_nodes_samples
+        regressor.nodes_hitrates = tree.n_node_samples
         regressor.nodes_missing_value_tracks_true = tree.missing_go_to_left
         regressor.nodes_modes = ['LEAF' if id == -2 else 'BRANCH_LEQ' for id in tree.feature]
         regressor.nodes_nodeids = [ii for ii in range(node_count)]
@@ -288,7 +288,7 @@ class SklearnConvertor:
         regressor.nodes_truenodeids = [0 if id == -1 else id for id in tree.children_left]
         regressor.nodes_values = [0.0 if regressor.nodes_modes[ii] == 'LEAF' else v for (ii, v) in enumerate(tree.threshold)]
         regressor.target_ids = [0] * leaf_count
-        regressor.target_nodeids = [ii for (ii, id) in tree.feature if id == -2]
+        regressor.target_nodeids = [ii for (ii, id) in enumerate(tree.feature) if id == -2]
         regressor.target_treeids = [tree_id] * leaf_count
         if type(input_model) is SklearnDecisionTreeRegressor:
             regressor.target_weights = [float(func(tree.value[id][0][0])) for id in regressor.target_nodeids]
@@ -306,6 +306,7 @@ class SklearnConvertor:
             ensemble = SklearnRandomForestRegressor(n_estimators=estimator_count)
             ensemble.n_outputs_ = 1
             ensemble.n_features_in_ = input_model.n_features_in_
+            ensemble.feature_names_in_ = input_model.feature_names_in_
             ensemble.estimators_ = [None] * estimator_count
             for i in range(estimator_count):
                 ensemble.estimators_[i] = SklearnConvertor.to_model_single_tree(output_model.regressors[i], input_model.estimators_[i])
@@ -321,7 +322,7 @@ class SklearnConvertor:
         assert input_model.tree_.n_outputs == 1
         sktree = sklearn_tree.Tree(input_model.tree_.n_features, np.array([1]), 1)  # Tree(n_features, n_classes, n_outputs)
         sknodes = np.ndarray(shape=node_count, dtype=skutils.Node)
-        parents: List[Tuple[int, str] | None] = None * node_count
+        parents: List[Tuple[int, str] | None] = [None] * node_count
         for (pid, lcid) in enumerate(regressor.nodes_truenodeids):
             parents[lcid] = (pid, 'L')
         for (pid, rcid) in enumerate(regressor.nodes_falsenodeids):
@@ -345,10 +346,14 @@ class SklearnConvertor:
         result_model.tree_ = sktree
         result_model.n_outputs_ = 1
         result_model.n_features_in_ = input_model.n_features_in_
+        # 随机森林中的单个决策树模型没有 feature_names_in_ 属性
+        if hasattr(input_model, 'feature_names_in_'):
+            result_model.feature_names_in_ = input_model.feature_names_in_
         return result_model
 
     @staticmethod
     def to_pipeline(input_pipeline: SklearnPipeline, output_model: SklearnTreeModel) -> SklearnPipeline:
-        name = input_pipeline.steps[-1][0]
-        input_pipeline.steps[-1] = (name, output_model)
-        return input_pipeline
+        output_pipeline = SklearnPipeline([e for e in input_pipeline.steps])
+        name = output_pipeline.steps[-1][0]
+        output_pipeline.steps[-1] = (name, output_model)
+        return output_pipeline

@@ -1,15 +1,12 @@
 import os
 import sys
-from multiprocessing import Pool
 import onnx
 import onnxruntime as ort
 import pandas as pd
 import numpy as np
 from loguru import logger
-from retree.convertor import ONNXConvertor, SklearnConvertor
-from retree.collapse import collapse_single_tree
-from retree.recombination import recombine_single_tree
 from retree.util import timer
+from timer_funcs import *
 
 # 随机森林回归器（3 棵树）
 _pipeline_1_name = 'nyc-taxi-green-dec-2016_t3_d2_l4_n7.onnx'
@@ -34,53 +31,6 @@ _pipeline_6_name = 'wine_quality_d10_l460_n919.onnx'
 _func_6 = lambda x: x == 6
 
 @timer
-def ONNXConvertor_find_model(pipeline):
-    return ONNXConvertor.find_model(pipeline)
-
-@timer
-def ONNXConvertor_from_model(model, func):
-    return ONNXConvertor.from_model(model, func)
-
-@timer
-def ONNXConvertor_to_model(ensemble, model):
-    return ONNXConvertor.to_model(ensemble, model)
-
-@timer
-def ONNXConvertor_to_pipeline(pipeline, model):
-    return ONNXConvertor.to_pipeline(pipeline, model)
-
-@timer
-def _collapse_single_tree(model):
-    return collapse_single_tree(model)
-
-@timer
-def _recombine_single_tree(model):
-    return recombine_single_tree(model)
-
-@timer
-def _process_single_tree(model):
-    model = _collapse_single_tree(model)
-    model = _recombine_single_tree(model)
-    return model
-
-@timer
-def _process(input_model, threads_count):
-    threads_count = min(threads_count, len(input_model.regressors))
-    with Pool(threads_count) as pool:
-        input_model.regressors = pool.map(_process_single_tree, input_model.regressors)
-    return input_model
-
-@timer
-def _check_node(model, pipeline):
-    ctx = onnx.checker.DEFAULT_CONTEXT
-    ctx.opset_imports = {opset.domain: opset.version for opset in pipeline.opset_import}
-    return onnx.checker.check_node(model)
-
-@timer
-def _check_model(pipeline):
-    return onnx.checker.check_model(pipeline)
-
-@timer
 def test_e2e_1():
     logger.info('test_e2e_1')
     pipeline_path = f'{os.path.dirname(os.path.abspath(__file__))}/data/{_pipeline_1_name}'
@@ -88,11 +38,11 @@ def test_e2e_1():
     model = ONNXConvertor_find_model(pipeline)
     assert model is not None
     ensemble = ONNXConvertor_from_model(model, _func_1)
-    ensemble = _process(ensemble, 4)
+    ensemble = T_process(ensemble, 4)
     out_model = ONNXConvertor_to_model(ensemble, model)
-    _check_node(out_model, pipeline)
+    T_check_node(out_model, pipeline)
     out_pipeline = ONNXConvertor_to_pipeline(pipeline, out_model)
-    _check_model(out_pipeline)
+    T_check_model(out_pipeline)
     out_model = ONNXConvertor_find_model(out_pipeline)
     ensemble = ONNXConvertor_from_model(out_model, _func_1)
     assert len(ensemble.regressors) == 3
@@ -119,11 +69,11 @@ def test_e2e_2():
     model = ONNXConvertor_find_model(pipeline)
     assert model is not None
     ensemble = ONNXConvertor_from_model(model, _func_2)
-    ensemble = _process(ensemble, 4)
+    ensemble = T_process(ensemble, 4)
     out_model = ONNXConvertor_to_model(ensemble, model)
-    _check_node(out_model, pipeline)
+    T_check_node(out_model, pipeline)
     out_pipeline = ONNXConvertor_to_pipeline(pipeline, out_model)
-    _check_model(out_pipeline)
+    T_check_model(out_pipeline)
     out_pipeline_path = f'{os.path.dirname(os.path.abspath(__file__))}/data/{_pipeline_2_out_name}'
     onnx.save_model(out_pipeline, out_pipeline_path)
 
@@ -135,11 +85,11 @@ def test_e2e_3():
     model = ONNXConvertor_find_model(pipeline)
     assert model is not None
     ensemble = ONNXConvertor_from_model(model, _func_3)
-    ensemble = _process(ensemble, 1)
+    ensemble = T_process(ensemble, 1)
     out_model = ONNXConvertor_to_model(ensemble, model)
-    _check_node(out_model, pipeline)
+    T_check_node(out_model, pipeline)
     out_pipeline = ONNXConvertor_to_pipeline(pipeline, out_model)
-    _check_model(out_pipeline)
+    T_check_model(out_pipeline)
     out_pipeline_path = f'{os.path.dirname(os.path.abspath(__file__))}/data/{_pipeline_3_out_name}'
     onnx.save_model(out_pipeline, out_pipeline_path)
 
@@ -167,11 +117,11 @@ def test_e2e_4():
     model = ONNXConvertor_find_model(pipeline)
     assert model is not None
     ensemble = ONNXConvertor_from_model(model, _func_4)
-    ensemble = _process(ensemble, 3)
+    ensemble = T_process(ensemble, 3)
     out_model = ONNXConvertor_to_model(ensemble, model)
-    _check_node(out_model, pipeline)
+    T_check_node(out_model, pipeline)
     out_pipeline = ONNXConvertor_to_pipeline(pipeline, out_model)
-    _check_model(out_pipeline)
+    T_check_model(out_pipeline)
     # TODO
 
 @timer
@@ -182,11 +132,11 @@ def test_e2e_5():
     model = ONNXConvertor_find_model(pipeline)
     assert model is not None
     ensemble = ONNXConvertor_from_model(model, _func_5)
-    ensemble = _process(ensemble, 4)
+    ensemble = T_process(ensemble, 4)
     out_model = ONNXConvertor_to_model(ensemble, model)
-    _check_node(out_model, pipeline)
+    T_check_node(out_model, pipeline)
     out_pipeline = ONNXConvertor_to_pipeline(pipeline, out_model)
-    _check_model(out_pipeline)
+    T_check_model(out_pipeline)
     out_pipeline_path = f'{os.path.dirname(os.path.abspath(__file__))}/data/{_pipeline_5_out_name}'
     onnx.save_model(out_pipeline, out_pipeline_path)
 
