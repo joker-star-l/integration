@@ -233,7 +233,7 @@ class CraftsmanCatBoostEncoder(CatBoostEncoder):
 
     def __init__(
         self, verbose=0, cols=None, drop_invariant=False, return_df=True, handle_missing='value',
-                 handle_unknown='value', min_samples_leaf=20, smoothing=10, hierarchy=None
+                 handle_unknown='value'
     ):
         super().__init__(
             verbose=verbose,
@@ -242,9 +242,6 @@ class CraftsmanCatBoostEncoder(CatBoostEncoder):
             return_df=return_df,
             handle_missing=handle_missing,
             handle_unknown=handle_unknown,
-            min_samples_leaf=min_samples_leaf,
-            smoothing=smoothing,
-            hierarchy=hierarchy,
         )
 
     def fit(self, X, y=None, **kwargs):
@@ -449,7 +446,6 @@ class CraftsmanOneHotEncoder(OneHotEncoder):
         *,
         categories="auto",
         drop=None,
-        sparse="deprecated",
         sparse_output=True,
         dtype=np.float64,
         handle_unknown="error",
@@ -457,7 +453,7 @@ class CraftsmanOneHotEncoder(OneHotEncoder):
         max_categories=None,
         feature_name_combiner="concat",
     ):
-        super().__init__(categories=categories, drop=drop, sparse=sparse, 
+        super().__init__(categories=categories, drop=drop, 
                          sparse_output=sparse_output, dtype=dtype, handle_unknown=handle_unknown,
                          min_frequency=min_frequency, max_categories=max_categories,
                          feature_name_combiner=feature_name_combiner)
@@ -579,8 +575,7 @@ class CraftsmanHashingEncoder(HashingEncoder):
             X[col] = X[col].astype(str)
         super().fit(X, y, **kwargs)
         trans_data = self.transform(X)
-        X_unique = X.drop_duplicates()
-        self.x_unique = X.unique()
+        self.x_unique = X.drop_duplicates()
         if not hasattr(self, 'value_counts'):
             self.value_counts = {}
             for col in trans_data.columns:
@@ -599,7 +594,7 @@ class CraftsmanHashingEncoder(HashingEncoder):
         for col in X.columns:
             X[col] = X[col].astype(str)
         trans_data = super().fit_transform(X, y, **fit_params)
-        self.x_unique = X.unique()
+        self.x_unique = X.drop_duplicates()
         if not hasattr(self, 'value_counts'):
             self.value_counts = {}
             for col in trans_data.columns:

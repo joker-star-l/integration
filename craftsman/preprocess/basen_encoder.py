@@ -3,9 +3,10 @@ from pandas import DataFrame, Series
 from category_encoders import BaseNEncoder
 from craftsman.base.operator import EXPAND
 from craftsman.base.defs import OperatorName
+from craftsman.utility.training_helper import CraftsmanBaseNEncoder
 
 class BaseNEncoderSQLOperator(EXPAND):
-    def __init__(self, featrue: list[str], fitted_transform):
+    def __init__(self, featrue: list[str], fitted_transform: BaseNEncoder | CraftsmanBaseNEncoder):
         super().__init__(OperatorName.BASENENCODER)
         self.features = featrue
         self._extract(fitted_transform)

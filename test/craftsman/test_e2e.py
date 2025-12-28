@@ -9,7 +9,26 @@ from craftsman.utility.loader import save_model
 from craftsman.base.defs import OperatorName, ModelName
 import craftsman.base.defs as defs
 from craftsman.transformer_manager import TransformerManager
-from craftsman.utility.training_helper import *
+# #{use craftsman
+# from craftsman.utility.training_helper import *
+# #}
+##{do not use craftsman
+from sklearn.compose import ColumnTransformer as CraftsmanColumnTransformer
+from sklearn.impute import SimpleImputer as CraftsmanSimpleImputer
+from sklearn.preprocessing import \
+    LabelEncoder as CraftsmanLabelEncoder,\
+    KBinsDiscretizer as CraftsmanKBinsDiscretizer,\
+    OrdinalEncoder as CraftsmanOrdinalEncoder,\
+    OneHotEncoder as CraftsmanOneHotEncoder
+from category_encoders import \
+    TargetEncoder as CraftsmanTargetEncoder,\
+    CountEncoder as CraftsmanCountEncoder,\
+    LeaveOneOutEncoder as CraftsmanLeaveOneOutEncoder,\
+    BinaryEncoder as CraftsmanBinaryEncoder,\
+    CatBoostEncoder as CraftsmanCatBoostEncoder,\
+    BaseNEncoder as CraftsmanBaseNEncoder,\
+    HashingEncoder as CraftsmanHashingEncoder
+##}
 
 def test_e2e_car_price():
     data_root = f'{os.path.dirname(os.path.abspath(__file__))}/data/car_price/'
@@ -48,7 +67,7 @@ def test_e2e_car_price():
     # define steps
     X_copy = X.copy()
 
-    X_copy = imputer.fit_transform(X_copy)
+    # X_copy = imputer.fit_transform(X_copy)
 
     transformer1 = CraftsmanColumnTransformer(
         remainder="passthrough",
@@ -74,10 +93,11 @@ def test_e2e_car_price():
                 count_cols,
             ),
         ],
-        input_data=X_copy
+        verbose_feature_names_out=False # must set to False!
+        # input_data=X_copy
     )
 
-    X_copy = transformer1.fit_transform(X_copy, y)
+    # X_copy = transformer1.fit_transform(X_copy, y)
 
     transformer2 = CraftsmanColumnTransformer(
         remainder="passthrough",
@@ -88,10 +108,14 @@ def test_e2e_car_price():
                 ['Year','Kilometers_Driven','Engine'],
             )
         ],
-        input_data=X_copy
+        verbose_feature_names_out=False
+        # input_data=X_copy
     )
 
     # compose pipline
+    imputer.set_output(transform='pandas')
+    transformer1.set_output(transform='pandas')
+    transformer2.set_output(transform='pandas')
     pipeline = Pipeline(
         steps=[
             ('Imputer', imputer),
