@@ -285,7 +285,7 @@ class CraftsmanKBinsDiscretizer(KBinsDiscretizer):
         encode="onehot",
         strategy="quantile",
         dtype=None,
-        subsample="warn",
+        subsample=200_000,
         random_state=None,
     ):
         super().__init__(

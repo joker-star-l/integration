@@ -14,6 +14,6 @@ extensions = [
 setup(
     name='integration',
     ext_modules=cythonize(extensions, language_level=3),
-    packages=['retree'],
+    packages=['retree', 'craftsman'],
     zip_safe=False
 )
