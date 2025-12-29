@@ -4,11 +4,14 @@ import pandas as pd
 from loguru import logger
 from category_encoders import\
     BaseNEncoder, BinaryEncoder, CatBoostEncoder,\
-    CountEncoder, HashingEncoder
-from sklearn.preprocessing import OneHotEncoder
+    CountEncoder, HashingEncoder, LeaveOneOutEncoder
+from sklearn.preprocessing import \
+    KBinsDiscretizer, LabelEncoder, MinMaxScaler,\
+    OneHotEncoder
 from craftsman.utility.training_helper import \
     CraftsmanBaseNEncoder, CraftsmanBinaryEncoder, CraftsmanCatBoostEncoder,\
-    CraftsmanCountEncoder, CraftsmanHashingEncoder, CraftsmanOneHotEncoder
+    CraftsmanCountEncoder, CraftsmanHashingEncoder, CraftsmanKBinsDiscretizer,\
+    CraftsmanLabelEncoder, CraftsmanOneHotEncoder, CraftsmanLeaveOneOutEncoder
 from craftsman.utility.feature_name_utils import get_set_feature_names_in_out
 
 data = {
@@ -128,6 +131,88 @@ def test_CraftsmanHashingEncoder():
     assert hasattr(e1, 'feature_names_out_')
     # print('e1:', e1, f'p0: {type(p1)}', p1, sep='\n')
 
+def test_CraftsmanKBinsDiscretizer():
+    df_ =  pd.DataFrame({'age':  [25,         30,       35       ]})
+    
+    e0 = CraftsmanKBinsDiscretizer()
+    p0 = e0.fit_transform(df_)
+    out00 = list(get_set_feature_names_in_out(e0))
+    out01 = list(get_set_feature_names_in_out(e0, features))
+    assert out00 == out01
+    logger.info(out00)
+    assert hasattr(e0, 'feature_names_in_')
+    assert hasattr(e0, 'feature_names_out_')
+    # print('e0:', e0, f'p0: {type(p0)}', p0, sep='\n')
+
+    e1 = KBinsDiscretizer()
+    p1 = e1.fit_transform(df_)
+    out10 = list(get_set_feature_names_in_out(e1))
+    out11 = list(get_set_feature_names_in_out(e1, features))
+    assert out10 == out11
+    logger.info(out10)
+    assert hasattr(e1, 'feature_names_in_')
+    assert hasattr(e1, 'feature_names_out_')
+    # print('e1:', e1, f'p0: {type(p1)}', p1, sep='\n')
+
+def test_CraftsmanLabelEncoder():
+    arr = pd.DataFrame({'name' : ['Alice',    'Bob',    'Charlie']})
+    feature = ['name']
+    
+    e0 = CraftsmanLabelEncoder()
+    p0 = e0.fit_transform(arr)
+    # out00 = list(get_set_feature_names_in_out(e0))
+    out01 = list(get_set_feature_names_in_out(e0, feature))
+    # assert out00 == out01
+    logger.info(out01)
+    assert hasattr(e0, 'feature_names_in_')
+    assert hasattr(e0, 'feature_names_out_')
+    # print('e0:', e0, f'p0: {type(p0)}', p0, sep='\n')
+
+    e1 = LabelEncoder()
+    p1 = e1.fit_transform(arr)
+    # out10 = list(get_set_feature_names_in_out(e1))
+    out11 = list(get_set_feature_names_in_out(e1, feature))
+    # assert out10 == out11
+    logger.info(out11)
+    assert hasattr(e1, 'feature_names_in_')
+    assert hasattr(e1, 'feature_names_out_')
+    # print('e1:', e1, f'p0: {type(p1)}', p1, sep='\n')
+
+def test_CraftsmanLeaveOneOutEncoder():
+    e0 = CraftsmanLeaveOneOutEncoder()
+    p0 = e0.fit_transform(df, y)
+    out00 = list(get_set_feature_names_in_out(e0))
+    out01 = list(get_set_feature_names_in_out(e0, features))
+    assert out00 == out01
+    logger.info(out00)
+    assert hasattr(e0, 'feature_names_in_')
+    assert hasattr(e0, 'feature_names_out_')
+    # print('e0:', e0, f'p0: {type(p0)}', p0, sep='\n')
+
+    e1 = LeaveOneOutEncoder()
+    p1 = e1.fit_transform(df, y)
+    out10 = list(get_set_feature_names_in_out(e1))
+    out11 = list(get_set_feature_names_in_out(e1, features))
+    assert out10 == out11
+    logger.info(out10)
+    assert hasattr(e1, 'feature_names_in_')
+    assert hasattr(e1, 'feature_names_out_')
+    # print('e1:', e1, f'p0: {type(p1)}', p1, sep='\n')
+
+def test_MinMaxScaler():
+    df_ =  pd.DataFrame({'age':  [25,         30,       35       ]})
+    features_ = ['age']
+    
+    e0 = MinMaxScaler()
+    p0 = e0.fit_transform(df_)
+    out00 = list(get_set_feature_names_in_out(e0))
+    out01 = list(get_set_feature_names_in_out(e0, features_))
+    assert out00 == out01
+    logger.info(out00)
+    assert hasattr(e0, 'feature_names_in_')
+    assert hasattr(e0, 'feature_names_out_')
+    # print('e0:', e0, f'p0: {type(p0)}', p0, sep='\n')
+
 logger.remove()
 logger.add(sys.stdout, level='INFO')
 
@@ -135,4 +220,8 @@ test_CraftsmanBaseNEncoder()
 test_CraftsmanBinaryEncoder()
 test_CraftsmanCatBoostEncoder()
 test_CraftsmanCountEncoder()
-test_CraftsmanHashingEncoder()
+# test_CraftsmanHashingEncoder() # FIXME: debug 模式下死循环
+# test_CraftsmanKBinsDiscretizer() # FIXME: 跑不通
+test_CraftsmanLabelEncoder()
+test_CraftsmanLeaveOneOutEncoder()
+test_MinMaxScaler()

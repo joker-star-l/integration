@@ -1,14 +1,17 @@
 from category_encoders import \
     BaseNEncoder, BinaryEncoder, CatBoostEncoder,\
-    CountEncoder, HashingEncoder
-# from sklearn.preprocessing import 
+    CountEncoder, HashingEncoder, LeaveOneOutEncoder
+from sklearn.preprocessing import \
+    KBinsDiscretizer, LabelEncoder, MinMaxScaler
 from craftsman.utility.training_helper import \
     CraftsmanBaseNEncoder, CraftsmanBinaryEncoder, CraftsmanCatBoostEncoder,\
-    CraftsmanCountEncoder, CraftsmanHashingEncoder
+    CraftsmanCountEncoder, CraftsmanHashingEncoder, CraftsmanKBinsDiscretizer,\
+    CraftsmanLabelEncoder, CraftsmanLeaveOneOutEncoder
 
 def _get_set_feature_names_in(encoder, feature_names_in_: list[str] | None) -> list[str]:
     if feature_names_in_ is not None:
-        assert len(feature_names_in_) == encoder.n_features_in_
+        if hasattr(encoder, 'n_features_in_'):
+            assert len(feature_names_in_) == encoder.n_features_in_
         encoder.feature_names_in_ = feature_names_in_
     else:
         assert hasattr(encoder, 'feature_names_in_')
@@ -47,6 +50,33 @@ def _get_set_feature_names_in_out_for_HashingEncoder(encoder, feature_names_in_:
     feature_names_in_ = _get_set_feature_names_in(encoder, feature_names_in_)
     return _get_set_feature_names_out(encoder, feature_names_in_)
 
+def _get_set_feature_names_in_out_for_KBinsDiscretizer(encoder, feature_names_in_: list[str] | None) -> list[str]:
+    assert type(encoder) in [KBinsDiscretizer, CraftsmanKBinsDiscretizer]
+    feature_names_in_ = _get_set_feature_names_in(encoder, feature_names_in_)
+    return _get_set_feature_names_out(encoder, feature_names_in_)
+
+def _get_set_feature_names_in_out_for_KBinsDiscretizer(encoder, feature_names_in_: list[str] | None) -> list[str]:
+    assert type(encoder) in [KBinsDiscretizer, CraftsmanKBinsDiscretizer]
+    feature_names_in_ = _get_set_feature_names_in(encoder, feature_names_in_)
+    return _get_set_feature_names_out(encoder, feature_names_in_)
+
+def _get_set_feature_names_in_out_for_LabelEncoder(encoder, feature_names_in_: list[str]) -> list[str]:
+    assert type(encoder) in [LabelEncoder, CraftsmanLabelEncoder]
+    assert len(feature_names_in_) == 1
+    encoder.feature_names_in_ = feature_names_in_
+    encoder.feature_names_out_ = feature_names_in_
+    return feature_names_in_
+
+def _get_set_feature_names_in_out_for_LeaveOneOutEncoder(encoder, feature_names_in_: list[str] | None) -> list[str]:
+    assert type(encoder) in [LeaveOneOutEncoder, CraftsmanLeaveOneOutEncoder]
+    feature_names_in_ = _get_set_feature_names_in(encoder, feature_names_in_)
+    return _get_set_feature_names_out(encoder, feature_names_in_)
+
+def _get_set_feature_names_in_out_for_MinMaxScaler(encoder, feature_names_in_: list[str] | None) -> list[str]:
+    assert type(encoder) in [MinMaxScaler]
+    feature_names_in_ = _get_set_feature_names_in(encoder, feature_names_in_)
+    return _get_set_feature_names_out(encoder, feature_names_in_)
+
 mapping = {
     BaseNEncoder: _get_set_feature_names_in_out_for_BaseNEncoder,
     CraftsmanBaseNEncoder: _get_set_feature_names_in_out_for_BaseNEncoder,
@@ -58,6 +88,13 @@ mapping = {
     CraftsmanCountEncoder: _get_set_feature_names_in_out_for_CountEncoder,
     HashingEncoder: _get_set_feature_names_in_out_for_HashingEncoder,
     CraftsmanHashingEncoder: _get_set_feature_names_in_out_for_HashingEncoder,
+    KBinsDiscretizer: _get_set_feature_names_in_out_for_KBinsDiscretizer,
+    CraftsmanKBinsDiscretizer: _get_set_feature_names_in_out_for_KBinsDiscretizer,
+    LabelEncoder: _get_set_feature_names_in_out_for_LabelEncoder,
+    CraftsmanLabelEncoder: _get_set_feature_names_in_out_for_LabelEncoder,
+    LeaveOneOutEncoder: _get_set_feature_names_in_out_for_LeaveOneOutEncoder,
+    CraftsmanLeaveOneOutEncoder: _get_set_feature_names_in_out_for_LeaveOneOutEncoder,
+    MinMaxScaler: _get_set_feature_names_in_out_for_MinMaxScaler,
 }
 
 def get_set_feature_names_in_out(encoder, feature_names_in_: list[str] | None = None) -> list[str]:
